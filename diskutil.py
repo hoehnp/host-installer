@@ -543,7 +543,7 @@ def probeDisk(device, justInstall = False):
     
     xelogging.log('Probe of %s found boot=%s root=%s state=%s storage=%s logs=%s' %
                   (device, str(boot), str(root), str(state), str(storage), str(logs)))
-
+//@todo: add fake statement to give different result for my current
     return (boot, root, state, storage, logs)
 
 
@@ -571,7 +571,7 @@ def is_iscsi(device):
 
     major, minor = getMajMin(device)
 
-    for d in iscsi_disks:
+    for d in iscsi_disks
         try:
             if (major, minor) == getMajMin(d):
                 return True
