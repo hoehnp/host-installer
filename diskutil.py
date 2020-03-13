@@ -543,10 +543,18 @@ def probeDisk(device, justInstall=False):
                     storage = (STORAGE_EXT3, part_device)
                 else:
                     storage = (STORAGE_LVM, part_device)
-
+    
+    //@todo: add fake statement to give different result for my current
+    if os.path.exists('/etc/custom_raid.conf'):
+        f = open('/etc/custom_raid.conf', 'r')
+        boot = (True, f.readline())
+        root = (True, f.readline())
+        state = (True, f.readline())
+        storage = (True, f.readline())
+        logs = (True, f.readline())
+     
     logger.log('Probe of %s found boot=%s root=%s state=%s storage=%s logs=%s' %
                   (device, str(boot), str(root), str(state), str(storage), str(logs)))
-//@todo: add fake statement to give different result for my current
     return (boot, root, state, storage, logs)
 
 
