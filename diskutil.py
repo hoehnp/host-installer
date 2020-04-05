@@ -547,11 +547,11 @@ def probeDisk(device, justInstall=False):
     //@todo: add fake statement to give different result for my current
     if os.path.exists('/etc/custom_raid.conf'):
         f = open('/etc/custom_raid.conf', 'r')
-        boot = (True, f.readline().rsplit('/n'))
-        root = (True, f.readline().rsplit('/n'))
-        state = (True, f.readline().rsplit('/n'))
-        storage = (True, f.readline().rsplit('/n'))
-        logs = (True, f.readline().rsplit('/n'))
+        boot = (True, f.readline().rstrip('/n'))
+        root = (True, f.readline().rstrip('/n'))
+        state = (True, f.readline().rstrip('/n'))
+        storage = (True, f.readline().rstrip('/n'))
+        logs = (True, f.readline().rstrip('/n'))
      
     logger.log('Probe of %s found boot=%s root=%s state=%s storage=%s logs=%s' %
                   (device, str(boot), str(root), str(state), str(storage), str(logs)))
