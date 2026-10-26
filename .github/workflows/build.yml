@@ -51,7 +51,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             genisoimage xorriso isomd5sum squashfs-tools e2fsprogs \
-            rsync file isolinux wget cpio
+            rsync file isolinux wget cpio fakeroot
 
       - name: Check out host-installer (${{ env.INSTALLER_BRANCH }})
         uses: actions/checkout@v4
@@ -161,10 +161,10 @@ jobs:
               mkdir -p "$ROOT"
               ( cd "$ROOT" && cpio -idm --quiet < "$IMG" )
               rsync -a "$PAYLOAD/" "$ROOT/"
-              # files inside the archive should be root-owned
-              sudo chown -R root:root "$ROOT"
-              ( cd "$ROOT" && find . -print0 \
-                  | cpio --null -o -H newc --quiet ) > "$IMG.new"
+              # fakeroot fakes root ownership for the archive without needing
+              # real root or making files unreadable on disk
+              ( cd "$ROOT" && fakeroot -- sh -c \
+                  'chown -R root:root . && find . -print0 | cpio --null -o -H newc --quiet' ) > "$IMG.new"
               mv "$IMG.new" "$IMG"
               ;;
             *)
