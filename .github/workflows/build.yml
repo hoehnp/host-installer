@@ -190,6 +190,7 @@ jobs:
       - name: Rebuild the ISO
         run: |
           set -euo pipefail
+          mkdir -p "$OUT_DIR"
           sudo chown -R root:root "$ISO_DIR"
           cd "$ISO_DIR"
 
