@@ -1,277 +1,297 @@
+name: Build modified XCP-ng ISOs (host-installer integration)
 
-name: Build Navit Binaries
+on:
+  workflow_dispatch:
+    inputs:
+      installer_repo:
+        description: "host-installer repository (owner/name)"
+        required: false
+        default: "hoehnp/host-installer"
+      installer_branch:
+        description: "Branch of the host-installer repo to integrate"
+        required: false
+        default: "master"          # <-- set to your branch, e.g. "my-fixes"
+      update_install_img:
+        description: "Also patch the first-stage installer inside install.img"
+        type: boolean
+        default: true
 
-on: [push, pull_request]
+permissions:
+  contents: read
 
 jobs:
-  sanity_check:
+  modified-iso:
+    name: XCP-ng ${{ matrix.version }}
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/navit-gps/sanity_check:master
-    steps:
-        - uses: actions/checkout@v7
-          with:
-            fetch-depth: 0
-        - name: run sanity check script
-          run: bash scripts/ci_sanity_checks.sh ci_sanity_checks.diff
-        - uses: actions/upload-artifact@v7
-          if: failure()
-          with:
-            name: Upload Patchset
-            path: ci_sanity_checks.diff
-        ##- uses: reviewdog/action-suggester@v1
-        ##  with:
-        ##    github_token: ${{ secrets.github_token }}
-        ##    tool_name: Navit sanity Check
-        ##    level: error
-        ##    fail_on_error: false
-        # FIXME: deactivated as somethings broken with it
-        #- name: Run CheckStyle Test
-        #  run: ./gradlew checkstyleMain
-        #- uses: actions/upload-artifact@v4
-        #  with:
-        #    name: Store checkstyle report
-        #    path: navit/android/checkstyle
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: "7.6"
+            iso_url: "https://downloads.xcp-ng.org/isos/7.6/xcp-ng-7.6.0.iso"
+            dist: ".xcpng7.6"
+          - version: "8.0"
+            iso_url: "https://downloads.xcp-ng.org/isos/8.0/xcp-ng-8.0.0.iso"
+            dist: ".xcpng8.0"
+          - version: "8.1"
+            iso_url: "https://downloads.xcp-ng.org/isos/8.1/xcp-ng-8.1.0.iso"
+            dist: ".xcpng8.1"
+          - version: "8.2"
+            iso_url: "https://downloads.xcp-ng.org/isos/8.2/xcp-ng-8.2.0.iso"
+            dist: ".xcpng8.2"
+          - version: "8.3"
+            iso_url: "https://downloads.xcp-ng.org/isos/8.3/xcp-ng-8.3.0.iso"
+            dist: ".xcpng8.3"
 
-  build_linux:
-    runs-on: ubuntu-latest
-    needs: sanity_check
-    container:
-      image: debian:latest
-    steps:
-      - run: |
-          apt-get update && apt-get install -y git
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - run: git config --global --add safe.directory $GITHUB_WORKSPACE
-      - name: Setup requirements
-        run: |
-           bash scripts/setup_common_requirements.sh
-           apt-get install -y libpng-dev libfreetype6-dev libdbus-glib-1-dev libgtk2.0-dev curl
-      - name: Build for Linux
-        run: bash scripts/build_linux.sh
-      - uses: actions/upload-artifact@v7
-        with:
-           name: Linux Artifacts
-           path: linux/_CPack_Packages
-      - name: Update Navit-Download-Center
-        run: |
-            bash scripts/update_download_center.sh
-  build_fdroid:
-    runs-on: ubuntu-latest
-    needs: sanity_check
-    container:
-      image: registry.gitlab.com/fdroid/fdroidserver:buildserver-bookworm
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - run: git config --global --add safe.directory $GITHUB_WORKSPACE
-      - run: bash -c 'if [ "X$UID" == X0 ]; then apt update && apt dist-upgrade && apt install -y sudo nodejs; fi'
-      - name: Install requirements
-        run: sudo bash scripts/setup_common_requirements.sh && bash scripts/setup_android.sh
-      - name: sdkmanager installed
-        run: |
-          apt-get install sdkmanager
-          rm -rf "$ANDROID_HOME/tools"
-      - name: sdkmanager usage
-        run: sdkmanager "tools" "platform-tools" "build-tools;31.0.0"
-      - name: build
-        run: scripts/build_fdroid.sh
-      - uses: actions/upload-artifact@v7
-        with:
-          name: F-Droid APK
-          path: unsigned
-  #run_doxygen:
-  # TODO: replace with pages Upload instead of gh-pages branch
-  #  runs-on: ubuntu-latest
-  #  needs: [build_android, build_wince, build_tomtom_minimal, build_linux, build_tomtom_plugin, build_win32]
-  #  container:
-  #    image: debian:latest
-  #  steps:
-  #    - uses: actions/checkout@v6
-  #    - name: Install doxygen and other essentials
-  #      run: apt-get update && apt-get -y install doxygen ca-certificates git rsync
-  #    - name: Run doxygen
-  #      run: cd navit && doxygen
-  #    - name: Update results to Github
-  #      run: bash scripts/update_doxygen.sh
-  #    - uses: actions/upload-artifact@v4
-  #      with:
-  #        path: /root/project/doc
-  #build_sailfish:
-  #  runs-on: ubuntu-latest
-  #  needs: sanity_check
-  #  container:
-  #      image: coderus/sailfishos-platform-sdk:4.4.0.64
-  #  steps:
-  #    - uses: actions/checkout@v6
-  #    # TODO currently broken because of USER in Dockerimage and probably because of double containers as well
-  #    - name: run build
-  #      run: sudo -E bash contrib/sailfish/build_sailfish_ci.sh
-  #      env:
-  #          VERSION_ID: 4.4.0.64
-  #    - uses: actions/upload-artifact@v4
-  #      with:
-  #        name: Store rpm
-  #        path: rpmbuild/RPMS/
-  build_android:
-    runs-on: ubuntu-latest
-    needs: sanity_check
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - run: git config --global --add safe.directory $GITHUB_WORKSPACE
-      - run: if [ "X$UID" == X0 ]; then apt update && apt install -y sudo; fi
-      - name: Install requirements
-        run: sudo bash scripts/setup_common_requirements.sh && bash scripts/setup_android.sh
-      - name: Setup Keystore and Playstore Keys
-        run: scripts/setup_publish_keys.sh
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-      - name: Build and upload Android
-        run: fastlane github_actions
-      #- name: Run Lint Test
-      #  run: |
-      #      ln -sf navit/navit.dtd navit.dtd
-      #      mkdir test-results
-      #      ./gradlew lint test
-      - uses: actions/upload-artifact@v7
-        with:
-          name: Store APK
-          path: build/outputs/apk
-      - uses: actions/upload-artifact@v7
-        with:
-          name: Store logs
-          path: build/outputs/logs
-      #- uses: actions/upload-artifact@v4
-      #  with:
-      #    name: Store Lint reports
-      #    path: build/reports
-      - uses: actions/upload-artifact@v7
-        with:
-          name: Android Test-results
-          path: test-results
-      - name: Update Navit-Download-Center
-        run: |
-            bash scripts/update_download_center.sh
-  build_win32:
-    runs-on: ubuntu-latest
-    needs: sanity_check
-    container:
-        image: ubuntu:26.04
-    steps:
-      - run: |
-          apt-get update && apt-get install -y git
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - run: git config --global --add safe.directory $GITHUB_WORKSPACE
-      - name: Prepare the Windows build environment
-        run: bash scripts/setup_win32.sh
-      - name: Build for Windows
-        run: |
-            bash scripts/build_win32.sh
-      - uses: actions/upload-artifact@v7
-        with:
-          name: Win32
-          path: win32/navit.exe
-      - name: Update Navit-Download-Center
-        run: |
-            bash scripts/update_download_center.sh
-  build_wince:
-    runs-on: ubuntu-latest
-    needs: sanity_check
-    container:
-        image: ghcr.io/enlyze/windows-ce-build-environment-arm
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - run: git config --global --add safe.directory $GITHUB_WORKSPACE
+    env:
+      WS: ${{ github.workspace }}
+      ISO_FILE: ${{ github.workspace }}/download/original.iso
+      ISO_DIR: ${{ github.workspace }}/iso
+      OUT_DIR: ${{ github.workspace }}/out
 
-      #- run: apt-get update && apt-get install -y git-core
-
-      - name: Prepare the WinCE build environment
-        run: bash scripts/setup_wince.sh
-
-      - name: Build for Windows CE
-        run: bash scripts/build_wince.sh
-
-      - uses: actions/upload-artifact@v7
-        with:
-          path: wince/output/navit.cab
-          name: WinCE CAB
-
-      - run: |
-          rm -rf wince/output/navit.cab
-
-      - uses: actions/upload-artifact@v7
-        with:
-          path: wince/output
-          name: WinCE Archive
-
-      - name: Update Navit-Download-Center
-        run: bash scripts/update_download_center.sh
-
-  build_tomtom_minimal:
-    runs-on: ubuntu-latest
-    needs: sanity_check
-    container:
-        image: ghcr.io/navit-gps/tomtom:master
     steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - run: git config --global --add safe.directory $GITHUB_WORKSPACE
-      - name: Prepare the tomtom build environment
+      - name: Prepare names
+        env:
+          BRANCH: ${{ inputs.installer_branch }}
         run: |
-            bash scripts/setup_common_requirements.sh
-            apt-get install -y xsltproc
-      - name: Build for Tomtom (minimal)
-        run: bash scripts/build_tomtom_minimal.sh
-      - uses: actions/upload-artifact@v7
-        with:
-          name: Tomtom Minimal
-          path: /output
-      - name: Update Navit-Download-Center
+          set -euo pipefail
+          BRANCH_SAFE="$(printf '%s' "$BRANCH" | sed -e 's#[^A-Za-z0-9._-]#-#g')"
+          echo "BRANCH_SAFE=$BRANCH_SAFE" >> "$GITHUB_ENV"
+          echo "OUT_ISO=$OUT_DIR/xcp-ng-${{ matrix.version }}-installer-${BRANCH_SAFE}.iso" >> "$GITHUB_ENV"
+
+      - name: Install tools
         run: |
-            bash scripts/update_download_center.sh
-  build_tomtom_plugin:
-    runs-on: ubuntu-latest
-    needs: sanity_check
-    container:
-        image: ghcr.io/navit-gps/tomtom:master
-    steps:
-      - uses: actions/checkout@v7
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            genisoimage xorriso isomd5sum squashfs-tools e2fsprogs \
+            createrepo-c rpm cpio rsync file isolinux wget
+
+      - name: Check out host-installer (${{ inputs.installer_branch }})
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - run: git config --global --add safe.directory $GITHUB_WORKSPACE
-      - name: Prepare the tomtom build environment
+          repository: ${{ inputs.installer_repo }}
+          ref: ${{ matrix.installer_ref || inputs.installer_branch }}
+          path: host-installer
+
+      - name: Build host-installer RPM for XCP-ng ${{ matrix.version }}
+        id: rpm
+        env:
+          DIST: ${{ matrix.dist }}
         run: |
-            bash scripts/setup_common_requirements.sh
-            apt-get install -y xsltproc
-      - name: Build for Tomtom (plugin)
-        run: |
-            bash scripts/build_tomtom_plugin.sh
-      - uses: actions/upload-artifact@v7
+          set -euo pipefail
+          cd "$WS/host-installer"
+
+          SPEC="$(find . -maxdepth 2 -name '*.spec' | head -n1)"
+          if [ -z "$SPEC" ]; then
+            echo "::error::No .spec file found in ${{ inputs.installer_repo }}"
+            exit 1
+          fi
+          NAME="$(awk '/^Name:/{print $2; exit}' "$SPEC")"
+          VERSION="$(awk '/^Version:/{print $2; exit}' "$SPEC")"
+          SRC="$(awk '/^Source0?:/{ $1=""; sub(/^ +/, ""); print; exit }' "$SPEC" \
+            | sed -e "s/%{name}/$NAME/g" -e "s/%{version}/$VERSION/g" -e 's#.*/##')"
+          echo "Building $NAME-$VERSION (source tarball: $SRC)"
+
+          case "$SRC" in
+            *.tar.xz)  FMT=tar.xz ;;
+            *.tar.bz2) FMT=tar.bz2 ;;
+            *.tar)     FMT=tar ;;
+            *)         FMT=tar.gz ;;
+          esac
+
+          mkdir -p "$HOME/rpmbuild/SOURCES" "$HOME/rpmbuild/SPECS" "$WS/built-rpms"
+          # Source tarball expected by the spec, built from the checked-out branch
+          git archive --format="$FMT" --prefix="${NAME}-${VERSION}/" -o "$HOME/rpmbuild/SOURCES/$SRC" HEAD
+          cp "$SPEC" "$HOME/rpmbuild/SPECS/"
+          find . -maxdepth 2 -name '*.patch' -exec cp -v {} "$HOME/rpmbuild/SOURCES/" \; || true
+
+          # --nodeps: no yum on the runner; host-installer only packages scripts/files.
+          # gzip payload: stays readable by the older rpm on 7.6/8.0/8.1/8.2.
+          rpmbuild -ba --nodeps \
+            --define "_topdir $HOME/rpmbuild" \
+            --define "dist $DIST" \
+            --define "_binary_payload w9.gzdio" \
+            "$HOME/rpmbuild/SPECS/$(basename "$SPEC")"
+
+          RPM_PATH="$(find "$HOME/rpmbuild/RPMS" -type f -name "${NAME}-*.rpm" | head -n1)"
+          [ -n "$RPM_PATH" ] || { echo "::error::rpmbuild produced no RPM"; exit 1; }
+          cp -v "$RPM_PATH" "$WS/built-rpms/"
+          echo "path=$WS/built-rpms/$(basename "$RPM_PATH")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload built host-installer RPM
+        uses: actions/upload-artifact@v4
         with:
-          name: Tomtom Plugin
-          path: /output
-      - name: Update Navit-Download-Center
+          name: host-installer-rpm-xcp-ng-${{ matrix.version }}
+          path: ${{ github.workspace }}/built-rpms/
+          if-no-files-found: error
+
+      - name: Download official XCP-ng ${{ matrix.version }} ISO
         run: |
-            bash scripts/update_download_center.sh
-  merge_trunk_in_master:
-    runs-on: ubuntu-latest
-    needs: [build_android, build_fdroid, build_wince, build_tomtom_minimal, build_linux, build_tomtom_plugin, build_win32]
-    if: github.ref == 'refs/heads/trunk'
-    steps:
-      - uses: actions/checkout@v7
-      - name: Merge to master branch
-        uses: devmasx/merge-branch@v1.4.0
+          set -euo pipefail
+          mkdir -p "$WS/download"
+          wget -q -O "$ISO_FILE" "${{ matrix.iso_url }}"
+          ls -lh "$ISO_FILE"
+
+      # --- docs step: extract the ISO (mount -o loop ... ; cp -a ...) ---
+      - name: Extract ISO contents
+        run: |
+          set -euo pipefail
+          MNT="$WS/mnt"
+          mkdir -p "$MNT" "$ISO_DIR"
+          sudo mount -o loop,ro "$ISO_FILE" "$MNT"
+          sudo cp -a "$MNT/." "$ISO_DIR/"
+          sudo umount "$MNT"
+          sudo chown -R "$(id -u):$(id -g)" "$ISO_DIR"
+
+      # --- docs step: modify the ISO — swap in the freshly built host-installer RPM ---
+      - name: Replace host-installer RPM on the ISO
+        run: |
+          set -euo pipefail
+          PKGDIR="$(find "$ISO_DIR" -mindepth 1 -maxdepth 1 -type d -name 'packages.*' | head -n1)"
+          if [ -z "$PKGDIR" ]; then
+            echo "::error::packages directory not found on the ISO"
+            exit 1
+          fi
+          echo "Package directory: $PKGDIR"
+          rm -fv "$PKGDIR"/host-installer-*.rpm
+          cp -v "$WS/built-rpms/"host-installer-*.rpm "$PKGDIR/"
+          # The installer resolves packages from the repo metadata shipped on the ISO
+          if [ -d "$PKGDIR/repodata" ]; then
+            echo "Refreshing repository metadata"
+            createrepo_c --update "$PKGDIR"
+          fi
+
+      # --- the first-stage installer lives inside install.img; patch it too ---
+      - name: Patch installer inside install.img
+        if: ${{ inputs.update_install_img }}
+        run: |
+          set -euo pipefail
+          IMG="$ISO_DIR/install.img"
+          if [ ! -f "$IMG" ]; then
+            echo "::error::install.img not found on the ISO"
+            exit 1
+          fi
+
+          # payload of the freshly built RPM (the files the installer RPM ships)
+          PAYLOAD="$WS/rpm-payload"
+          mkdir -p "$PAYLOAD"
+          ( cd "$PAYLOAD" && rpm2cpio "$WS/built-rpms/"host-installer-*.rpm | cpio -idm --quiet )
+
+          FSTYPE="$(file -b "$IMG")"
+          echo "install.img: $FSTYPE"
+
+          # the image may be gzip/xz wrapped depending on XCP-ng version
+          COMP=""
+          if echo "$FSTYPE" | grep -qi 'gzip compressed'; then COMP=gzip
+          elif echo "$FSTYPE" | grep -qi 'XZ compressed'; then COMP=xz
+          fi
+          if [ -n "$COMP" ]; then
+            case "$COMP" in
+              gzip) gunzip -c "$IMG" > "$IMG.unpacked" ;;
+              xz)   unxz  -c "$IMG" > "$IMG.unpacked" ;;
+            esac
+            mv "$IMG.unpacked" "$IMG"
+            FSTYPE="$(file -b "$IMG")"
+            echo "install.img (uncompressed): $FSTYPE"
+          fi
+
+          case "$FSTYPE" in
+            *Squashfs*|*squashfs*)
+              echo "install.img is a squashfs image"
+              ROOT="$WS/install-root"
+              unsquashfs -d "$ROOT" "$IMG" > /dev/null
+              rsync -a "$PAYLOAD/" "$ROOT/"
+              mksquashfs "$ROOT" "$IMG.new" -noappend -all-root -comp xz -b 1M > /dev/null
+              mv "$IMG.new" "$IMG"
+              ;;
+            *ext2*|*ext3*|*ext4*|*Linux\ rev*)
+              echo "install.img is an ext2/3/4 filesystem image"
+              truncate -s +64M "$IMG"            # make room for the new files
+              sudo e2fsck -fp "$IMG" || true
+              sudo resize2fs -f "$IMG"
+              MNT="$WS/install-mnt"
+              mkdir -p "$MNT"
+              sudo mount -o loop "$IMG" "$MNT"
+              sudo rsync -a --chown=root:root "$PAYLOAD/" "$MNT/"
+              sudo umount "$MNT"
+              ;;
+            *)
+              echo "::error::Unrecognized install.img format: $FSTYPE"
+              exit 1
+              ;;
+          esac
+
+          if [ -n "$COMP" ]; then
+            case "$COMP" in
+              gzip) gzip -9 "$IMG" ;;
+              xz)   xz -9 -T0 "$IMG" ;;
+            esac
+            mv "$IMG.gz" "$IMG" 2>/dev/null || mv "$IMG.xz" "$IMG"
+          fi
+          echo "install.img updated:"
+          ls -lh "$IMG"
+
+      # --- docs step: rebuild the ISO ---
+      - name: Rebuild the ISO
+        run: |
+          set -euo pipefail
+          sudo chown -R root:root "$ISO_DIR"
+          cd "$ISO_DIR"
+
+          LABEL="$(isoinfo -d -i "$ISO_FILE" | awk -F'Volume id: ' '/Volume id:/{print $2}')"
+          LABEL="${LABEL:-XCP-ng}"
+          ISOLINUX_BIN="$(find . -name isolinux.bin -print -quit | sed 's#^\./##')"
+          EFIBOOT="$(find . -type f -iname 'efiboot*.img' -print -quit | sed 's#^\./##')"
+          if [ -z "$ISOLINUX_BIN" ] || [ -z "$EFIBOOT" ]; then
+            echo "::error::isolinux.bin and/or efiboot.img not found in the extracted ISO"
+            exit 1
+          fi
+          BOOTCAT="$(dirname "$ISOLINUX_BIN")/boot.cat"
+          MBR_BIN=/usr/lib/ISOLINUX/isohdpfx.bin
+          [ -f "$MBR_BIN" ] || MBR_BIN=/usr/lib/syslinux/modules/bios/isohdpfx.bin
+          echo "label='$LABEL' isolinux='$ISOLINUX_BIN' efiboot='$EFIBOOT'"
+
+          # Same options as the documented genisoimage command, run through
+          # xorriso -as mkisofs so the result can also be dd'ed to USB sticks:
+          #   -isohybrid-mbr        -> BIOS USB boot
+          #   -isohybrid-gpt-basdat -> UEFI USB boot
+          xorriso -as mkisofs \
+            -J -R -V "$LABEL" \
+            -isohybrid-mbr "$MBR_BIN" \
+            -b "$ISOLINUX_BIN" \
+            -c "$BOOTCAT" \
+            -no-emul-boot -boot-load-size 4 -boot-info-table \
+            -eltorito-alt-boot -e "$EFIBOOT" -no-emul-boot \
+            -isohybrid-gpt-basdat \
+            -o "$OUT_ISO" \
+            .
+          ls -lh "$OUT_ISO"
+
+      # --- docs step: implant the MD5 checksum (enables the "mediacheck" boot entry) ---
+      - name: Implant MD5 checksum
+        run: |
+          set -euo pipefail
+          implantisomd5 --force "$OUT_ISO"
+
+      - name: Verify modified ISO
+        run: |
+          set -euo pipefail
+          isoinfo -d -i "$OUT_ISO" | sed -n '1,15p'
+          checkisomd5 "$OUT_ISO"
+
+      - name: Upload modified ISO
+        uses: actions/upload-artifact@v4
         with:
-          type: now
-          target_branch: 'master'
-          github_token: ${{ github.token }}
+          name: xcp-ng-${{ matrix.version }}-modified-iso
+          path: ${{ env.OUT_ISO }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Job summary
+        run: |
+          {
+            echo "### XCP-ng ${{ matrix.version }} — modified ISO"
+            echo "- Installer source: \`${{ inputs.installer_repo }}\` branch \`${{ inputs.installer_branch }}\`"
+            echo "- Base ISO: \`${{ matrix.iso_url }}\`"
+            echo "- Artifact: \`xcp-ng-${{ matrix.version }}-modified-iso\`"
+          } >> "$GITHUB_STEP_SUMMARY"
