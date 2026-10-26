@@ -23,19 +23,14 @@ jobs:
         include:
           - version: "7.6"
             iso_url: "https://downloads.xcp-ng.org/isos/7.6/xcp-ng-7.6.0.iso"
-            dist: ".xcpng7.6"
           - version: "8.0"
             iso_url: "https://downloads.xcp-ng.org/isos/8.0/xcp-ng-8.0.0.iso"
-            dist: ".xcpng8.0"
           - version: "8.1"
             iso_url: "https://downloads.xcp-ng.org/isos/8.1/xcp-ng-8.1.0.iso"
-            dist: ".xcpng8.1"
           - version: "8.2"
             iso_url: "https://downloads.xcp-ng.org/isos/8.2/xcp-ng-8.2.0.iso"
-            dist: ".xcpng8.2"
           - version: "8.3"
             iso_url: "https://downloads.xcp-ng.org/isos/8.3/xcp-ng-8.3.0.iso"
-            dist: ".xcpng8.3"
 
     env:
       WS: ${{ github.workspace }}
@@ -56,7 +51,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             genisoimage xorriso isomd5sum squashfs-tools e2fsprogs \
-            createrepo-c rpm cpio rsync file isolinux wget
+            rsync file isolinux wget
 
       - name: Check out host-installer (${{ env.INSTALLER_BRANCH }})
         uses: actions/checkout@v4
@@ -65,87 +60,24 @@ jobs:
           ref: ${{ env.INSTALLER_BRANCH }}
           path: host-installer
 
-      # The installer is a python program shipped by the host-installer RPM
-      # (files mostly under /opt/xensource/installer/). Build it from the
-      # test_ai_code branch via the repo's Makefile.
-      - name: Build host-installer RPM for XCP-ng ${{ matrix.version }}
-        id: rpm
-        env:
-          DIST: ${{ matrix.dist }}
+      # The installer is a python program; per the docs its files live mostly
+      # in /opt/xensource/installer/. Stage them from the test_ai_code branch
+      # so they can be overlaid directly into install.img.
+      - name: Stage installer files from test_ai_code
         run: |
           set -euo pipefail
+          STAGE="$WS/stage"
+          mkdir -p "$STAGE/opt/xensource/installer" "$STAGE/usr/bin"
+
           cd "$WS/host-installer"
-          mkdir -p "$WS/built-rpms"
+          rsync -a \
+            --exclude '.git/' --exclude '.github/' --exclude '.hgignore' \
+            --exclude 'test/' --exclude 'doc/' --exclude 'Makefile' \
+            ./ "$STAGE/opt/xensource/installer/"
+          install -m755 support.sh "$STAGE/usr/bin/support.sh" || true
 
-          # Build via the repo's Makefile: prefer a full 'rpm' target,
-          # fall back to 'dist' (tarball + generated spec)
-          if make -n rpm >/dev/null 2>&1; then
-            echo "Running 'make rpm'..."
-            make rpm DIST="$DIST" || make rpm || true
-          elif make -n dist >/dev/null 2>&1; then
-            echo "Running 'make dist'..."
-            make dist DIST="$DIST" || make dist || true
-          else
-            echo "No 'rpm' or 'dist' Makefile target found — trying 'make'..."
-            make || true
-          fi
-
-          SPEC="$(find . -name '*.spec' | head -n1)"
-          TARBALL="$(find . -name 'host-installer-*.tar.*' -o -name 'host-installer-*.tgz' | head -n1)"
-          mkdir -p "$HOME/rpmbuild/SOURCES" "$HOME/rpmbuild/SPECS"
-
-          if [ -n "$SPEC" ]; then
-            NAME="$(awk '/^Name:/{print $2; exit}' "$SPEC")"
-            VERSION="$(awk '/^Version:/{print $2; exit}' "$SPEC")"
-            SRC="$(awk '/^Source0?:/{ $1=""; sub(/^ +/, ""); print; exit }' "$SPEC" \
-              | sed -e "s/%{name}/$NAME/g" -e "s/%{version}/$VERSION/g" -e 's#.*/##')"
-
-            # If the spec's source tarball doesn't exist yet, create it from the checkout
-            if [ ! -f "$HOME/rpmbuild/SOURCES/$SRC" ] && [ ! -f "$SRC" ]; then
-              case "$SRC" in
-                *.tar.xz)  FMT=tar.xz ;;
-                *.tar.bz2) FMT=tar.bz2 ;;
-                *.tar)     FMT=tar ;;
-                *)         FMT=tar.gz ;;
-              esac
-              git archive --format="$FMT" --prefix="${NAME}-${VERSION}/" -o "$HOME/rpmbuild/SOURCES/$SRC" HEAD
-            elif [ -f "$SRC" ]; then
-              cp -v "$SRC" "$HOME/rpmbuild/SOURCES/"
-            fi
-
-            cp "$SPEC" "$HOME/rpmbuild/SPECS/"
-            find . -name '*.patch' -exec cp -v {} "$HOME/rpmbuild/SOURCES/" \; || true
-
-            rpmbuild -ba --nodeps \
-              --define "_topdir $HOME/rpmbuild" \
-              --define "dist $DIST" \
-              --define "_binary_payload w9.gzdio" \
-              "$HOME/rpmbuild/SPECS/$(basename "$SPEC")"
-          elif [ -n "$TARBALL" ]; then
-            # 'make dist' produced a source tarball (with spec inside) — build from it
-            cp -v "$TARBALL" "$HOME/rpmbuild/SOURCES/"
-            rpmbuild -ta --nodeps \
-              --define "_topdir $HOME/rpmbuild" \
-              --define "dist $DIST" \
-              --define "_binary_payload w9.gzdio" \
-              "$HOME/rpmbuild/SOURCES/$(basename "$TARBALL")"
-          else
-            echo "::error::No .spec or source tarball found (even after make)"
-            ls -laR "$PWD" | head -n 60
-            exit 1
-          fi
-
-          RPM_PATH="$(find "$HOME/rpmbuild/RPMS" -type f -name '*.rpm' | head -n1)"
-          [ -n "$RPM_PATH" ] || { echo "::error::rpmbuild produced no RPM"; exit 1; }
-          cp -v "$RPM_PATH" "$WS/built-rpms/"
-          echo "path=$WS/built-rpms/$(basename "$RPM_PATH")" >> "$GITHUB_OUTPUT"
-
-      - name: Upload built host-installer RPM
-        uses: actions/upload-artifact@v4
-        with:
-          name: host-installer-rpm-xcp-ng-${{ matrix.version }}
-          path: ${{ github.workspace }}/built-rpms/
-          if-no-files-found: error
+          echo "Staged installer files:"
+          find "$STAGE" -maxdepth 3 | sed -n '1,30p'
 
       - name: Download official XCP-ng ${{ matrix.version }} ISO
         run: |
@@ -165,28 +97,9 @@ jobs:
           sudo umount "$MNT"
           sudo chown -R "$(id -u):$(id -g)" "$ISO_DIR"
 
-      # --- docs step: modify the ISO — swap in the freshly built host-installer RPM ---
-      - name: Replace host-installer RPM on the ISO
-        run: |
-          set -euo pipefail
-          PKGDIR="$(find "$ISO_DIR" -mindepth 1 -maxdepth 1 -type d -name 'packages.*' | head -n1)"
-          if [ -z "$PKGDIR" ]; then
-            echo "::error::packages directory not found on the ISO"
-            exit 1
-          fi
-          echo "Package directory: $PKGDIR"
-          rm -fv "$PKGDIR"/host-installer-*.rpm
-          cp -v "$WS/built-rpms/"host-installer-*.rpm "$PKGDIR/"
-          # The installer resolves packages from the repo metadata on the ISO
-          if [ -d "$PKGDIR/repodata" ]; then
-            echo "Refreshing repository metadata"
-            createrepo_c --update "$PKGDIR"
-          fi
-
-      # --- the first-stage installer lives inside install.img; patch it too.
-      #     The RPM payload (mostly /opt/xensource/installer/) is overlaid onto
-      #     the unpacked install.img so the first-stage installer runs the
-      #     modified code from the test_ai_code branch. ---
+      # --- the first-stage installer lives inside install.img; overlay the
+      #     staged installer files (mostly /opt/xensource/installer/) so the
+      #     installation runs the modified code from the test_ai_code branch ---
       - name: Patch installer inside install.img
         run: |
           set -euo pipefail
@@ -196,11 +109,9 @@ jobs:
             exit 1
           fi
 
-          # payload of the freshly built RPM (the files the installer RPM ships)
-          PAYLOAD="$WS/rpm-payload"
-          mkdir -p "$PAYLOAD"
-          ( cd "$PAYLOAD" && rpm2cpio "$WS/built-rpms/"host-installer-*.rpm | cpio -idm --quiet )
-          echo "RPM payload (installer files):"
+          # installer files staged from the test_ai_code branch
+          PAYLOAD="$WS/stage"
+          echo "Installer files to overlay:"
           find "$PAYLOAD" -maxdepth 4 -type d | sed -n '1,20p'
 
           FSTYPE="$(file -b "$IMG")"
