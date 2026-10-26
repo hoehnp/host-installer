@@ -121,11 +121,13 @@ jobs:
           COMP=""
           if echo "$FSTYPE" | grep -qi 'gzip compressed'; then COMP=gzip
           elif echo "$FSTYPE" | grep -qi 'XZ compressed'; then COMP=xz
+          elif echo "$FSTYPE" | grep -qi 'bzip2 compressed'; then COMP=bz2
           fi
           if [ -n "$COMP" ]; then
             case "$COMP" in
               gzip) gunzip -c "$IMG" > "$IMG.unpacked" ;;
               xz)   unxz  -c "$IMG" > "$IMG.unpacked" ;;
+              bz2)  bunzip2 -c "$IMG" > "$IMG.unpacked" ;;
             esac
             mv "$IMG.unpacked" "$IMG"
             FSTYPE="$(file -b "$IMG")"
@@ -162,8 +164,9 @@ jobs:
             case "$COMP" in
               gzip) gzip -9 "$IMG" ;;
               xz)   xz -9 -T0 "$IMG" ;;
+              bz2)  bzip2 -9 "$IMG" ;;
             esac
-            mv "$IMG.gz" "$IMG" 2>/dev/null || mv "$IMG.xz" "$IMG"
+            mv "$IMG.gz" "$IMG" 2>/dev/null || mv "$IMG.xz" "$IMG" || mv "$IMG.bz2" "$IMG"
           fi
           echo "install.img updated:"
           ls -lh "$IMG"
