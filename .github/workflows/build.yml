@@ -159,12 +159,14 @@ jobs:
               echo "install.img is a cpio (newc) archive"
               ROOT="$WS/install-root"
               mkdir -p "$ROOT"
-              ( cd "$ROOT" && cpio -idm --quiet < "$IMG" )
-              rsync -a "$PAYLOAD/" "$ROOT/"
-              # fakeroot fakes root ownership for the archive without needing
-              # real root or making files unreadable on disk
-              ( cd "$ROOT" && fakeroot -- sh -c \
-                  'chown -R root:root . && find . -print0 | cpio --null -o -H newc --quiet' ) > "$IMG.new"
+              # extract as root: files are recreated with their original
+              # modes/ownership (shadow=000, setuid binaries, ...)
+              ( cd "$ROOT" && sudo cpio -idm --quiet < "$IMG" )
+              # overlay the staged installer files as root
+              sudo rsync -a --chown=root:root "$PAYLOAD/" "$ROOT/"
+              # repack as root: reads everything, records root ownership
+              ( cd "$ROOT" && sudo sh -c \
+                  'find . -print0 | cpio --null -o -H newc --quiet' ) > "$IMG.new"
               mv "$IMG.new" "$IMG"
               ;;
             *)
