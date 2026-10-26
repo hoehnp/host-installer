@@ -1,23 +1,17 @@
 name: Build modified XCP-ng ISOs (host-installer integration)
 
 on:
-  workflow_dispatch:
-    inputs:
-      installer_repo:
-        description: "host-installer repository (owner/name)"
-        required: false
-        default: "hoehnp/host-installer"
-      installer_branch:
-        description: "Branch of the host-installer repo to integrate"
-        required: false
-        default: "master"          # <-- set to your branch, e.g. "my-fixes"
-      update_install_img:
-        description: "Also patch the first-stage installer inside install.img"
-        type: boolean
-        default: true
+  push:
+    branches:
+      - "**"
+  pull_request:
 
 permissions:
   contents: read
+
+env:
+  INSTALLER_REPO: hoehnp/host-installer
+  INSTALLER_BRANCH: test_ai_code
 
 jobs:
   modified-iso:
@@ -51,11 +45,9 @@ jobs:
 
     steps:
       - name: Prepare names
-        env:
-          BRANCH: ${{ inputs.installer_branch }}
         run: |
           set -euo pipefail
-          BRANCH_SAFE="$(printf '%s' "$BRANCH" | sed -e 's#[^A-Za-z0-9._-]#-#g')"
+          BRANCH_SAFE="$(printf '%s' "$INSTALLER_BRANCH" | sed -e 's#[^A-Za-z0-9._-]#-#g')"
           echo "BRANCH_SAFE=$BRANCH_SAFE" >> "$GITHUB_ENV"
           echo "OUT_ISO=$OUT_DIR/xcp-ng-${{ matrix.version }}-installer-${BRANCH_SAFE}.iso" >> "$GITHUB_ENV"
 
@@ -66,11 +58,11 @@ jobs:
             genisoimage xorriso isomd5sum squashfs-tools e2fsprogs \
             createrepo-c rpm cpio rsync file isolinux wget
 
-      - name: Check out host-installer (${{ inputs.installer_branch }})
+      - name: Check out host-installer (${{ env.INSTALLER_BRANCH }})
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.installer_repo }}
-          ref: ${{ matrix.installer_ref || inputs.installer_branch }}
+          repository: ${{ env.INSTALLER_REPO }}
+          ref: ${{ env.INSTALLER_BRANCH }}
           path: host-installer
 
       - name: Build host-installer RPM for XCP-ng ${{ matrix.version }}
@@ -83,7 +75,7 @@ jobs:
 
           SPEC="$(find . -maxdepth 2 -name '*.spec' | head -n1)"
           if [ -z "$SPEC" ]; then
-            echo "::error::No .spec file found in ${{ inputs.installer_repo }}"
+            echo "::error::No .spec file found in ${{ env.INSTALLER_REPO }}"
             exit 1
           fi
           NAME="$(awk '/^Name:/{print $2; exit}' "$SPEC")"
@@ -155,7 +147,7 @@ jobs:
           echo "Package directory: $PKGDIR"
           rm -fv "$PKGDIR"/host-installer-*.rpm
           cp -v "$WS/built-rpms/"host-installer-*.rpm "$PKGDIR/"
-          # The installer resolves packages from the repo metadata shipped on the ISO
+          # The installer resolves packages from the repo metadata on the ISO
           if [ -d "$PKGDIR/repodata" ]; then
             echo "Refreshing repository metadata"
             createrepo_c --update "$PKGDIR"
@@ -163,7 +155,6 @@ jobs:
 
       # --- the first-stage installer lives inside install.img; patch it too ---
       - name: Patch installer inside install.img
-        if: ${{ inputs.update_install_img }}
         run: |
           set -euo pipefail
           IMG="$ISO_DIR/install.img"
@@ -291,7 +282,7 @@ jobs:
         run: |
           {
             echo "### XCP-ng ${{ matrix.version }} — modified ISO"
-            echo "- Installer source: \`${{ inputs.installer_repo }}\` branch \`${{ inputs.installer_branch }}\`"
+            echo "- Installer source: \`${{ env.INSTALLER_REPO }}\` branch \`${{ env.INSTALLER_BRANCH }}\`"
             echo "- Base ISO: \`${{ matrix.iso_url }}\`"
             echo "- Artifact: \`xcp-ng-${{ matrix.version }}-modified-iso\`"
           } >> "$GITHUB_STEP_SUMMARY"
