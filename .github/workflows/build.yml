@@ -65,6 +65,9 @@ jobs:
           ref: ${{ env.INSTALLER_BRANCH }}
           path: host-installer
 
+      # The installer is a python program shipped by the host-installer RPM
+      # (files mostly under /opt/xensource/installer/). Build it from the
+      # test_ai_code branch via the repo's Makefile.
       - name: Build host-installer RPM for XCP-ng ${{ matrix.version }}
         id: rpm
         env:
@@ -72,40 +75,67 @@ jobs:
         run: |
           set -euo pipefail
           cd "$WS/host-installer"
+          mkdir -p "$WS/built-rpms"
 
-          SPEC="$(find . -maxdepth 2 -name '*.spec' | head -n1)"
-          if [ -z "$SPEC" ]; then
-            echo "::error::No .spec file found in ${{ env.INSTALLER_REPO }}"
+          # Build via the repo's Makefile: prefer a full 'rpm' target,
+          # fall back to 'dist' (tarball + generated spec)
+          if make -n rpm >/dev/null 2>&1; then
+            echo "Running 'make rpm'..."
+            make rpm DIST="$DIST" || make rpm || true
+          elif make -n dist >/dev/null 2>&1; then
+            echo "Running 'make dist'..."
+            make dist DIST="$DIST" || make dist || true
+          else
+            echo "No 'rpm' or 'dist' Makefile target found — trying 'make'..."
+            make || true
+          fi
+
+          SPEC="$(find . -name '*.spec' | head -n1)"
+          TARBALL="$(find . -name 'host-installer-*.tar.*' -o -name 'host-installer-*.tgz' | head -n1)"
+          mkdir -p "$HOME/rpmbuild/SOURCES" "$HOME/rpmbuild/SPECS"
+
+          if [ -n "$SPEC" ]; then
+            NAME="$(awk '/^Name:/{print $2; exit}' "$SPEC")"
+            VERSION="$(awk '/^Version:/{print $2; exit}' "$SPEC")"
+            SRC="$(awk '/^Source0?:/{ $1=""; sub(/^ +/, ""); print; exit }' "$SPEC" \
+              | sed -e "s/%{name}/$NAME/g" -e "s/%{version}/$VERSION/g" -e 's#.*/##')"
+
+            # If the spec's source tarball doesn't exist yet, create it from the checkout
+            if [ ! -f "$HOME/rpmbuild/SOURCES/$SRC" ] && [ ! -f "$SRC" ]; then
+              case "$SRC" in
+                *.tar.xz)  FMT=tar.xz ;;
+                *.tar.bz2) FMT=tar.bz2 ;;
+                *.tar)     FMT=tar ;;
+                *)         FMT=tar.gz ;;
+              esac
+              git archive --format="$FMT" --prefix="${NAME}-${VERSION}/" -o "$HOME/rpmbuild/SOURCES/$SRC" HEAD
+            elif [ -f "$SRC" ]; then
+              cp -v "$SRC" "$HOME/rpmbuild/SOURCES/"
+            fi
+
+            cp "$SPEC" "$HOME/rpmbuild/SPECS/"
+            find . -name '*.patch' -exec cp -v {} "$HOME/rpmbuild/SOURCES/" \; || true
+
+            rpmbuild -ba --nodeps \
+              --define "_topdir $HOME/rpmbuild" \
+              --define "dist $DIST" \
+              --define "_binary_payload w9.gzdio" \
+              "$HOME/rpmbuild/SPECS/$(basename "$SPEC")"
+          elif [ -n "$TARBALL" ]; then
+            # 'make dist' produced a source tarball (with spec inside) — build from it
+            cp -v "$TARBALL" "$HOME/rpmbuild/SOURCES/"
+            rpmbuild -ta --nodeps \
+              --define "_topdir $HOME/rpmbuild" \
+              --define "dist $DIST" \
+              --define "_binary_payload w9.gzdio" \
+              "$HOME/rpmbuild/SOURCES/$(basename "$TARBALL")"
+          else
+            echo "::error::No .spec or source tarball found (even after make)"
+            ls -laR "$PWD" | head -n 60
             exit 1
           fi
-          NAME="$(awk '/^Name:/{print $2; exit}' "$SPEC")"
-          VERSION="$(awk '/^Version:/{print $2; exit}' "$SPEC")"
-          SRC="$(awk '/^Source0?:/{ $1=""; sub(/^ +/, ""); print; exit }' "$SPEC" \
-            | sed -e "s/%{name}/$NAME/g" -e "s/%{version}/$VERSION/g" -e 's#.*/##')"
-          echo "Building $NAME-$VERSION (source tarball: $SRC)"
 
-          case "$SRC" in
-            *.tar.xz)  FMT=tar.xz ;;
-            *.tar.bz2) FMT=tar.bz2 ;;
-            *.tar)     FMT=tar ;;
-            *)         FMT=tar.gz ;;
-          esac
-
-          mkdir -p "$HOME/rpmbuild/SOURCES" "$HOME/rpmbuild/SPECS" "$WS/built-rpms"
-          # Source tarball expected by the spec, built from the checked-out branch
-          git archive --format="$FMT" --prefix="${NAME}-${VERSION}/" -o "$HOME/rpmbuild/SOURCES/$SRC" HEAD
-          cp "$SPEC" "$HOME/rpmbuild/SPECS/"
-          find . -maxdepth 2 -name '*.patch' -exec cp -v {} "$HOME/rpmbuild/SOURCES/" \; || true
-
-          # --nodeps: no yum on the runner; host-installer only packages scripts/files.
-          # gzip payload: stays readable by the older rpm on 7.6/8.0/8.1/8.2.
-          rpmbuild -ba --nodeps \
-            --define "_topdir $HOME/rpmbuild" \
-            --define "dist $DIST" \
-            --define "_binary_payload w9.gzdio" \
-            "$HOME/rpmbuild/SPECS/$(basename "$SPEC")"
-
-          RPM_PATH="$(find "$HOME/rpmbuild/RPMS" -type f -name "${NAME}-*.rpm" | head -n1)"
+          RPM_PATH="$(find "$HOME/rpmbuild/RPMS" -type f -name '*.rpm' | head -n1)"
           [ -n "$RPM_PATH" ] || { echo "::error::rpmbuild produced no RPM"; exit 1; }
           cp -v "$RPM_PATH" "$WS/built-rpms/"
           echo "path=$WS/built-rpms/$(basename "$RPM_PATH")" >> "$GITHUB_OUTPUT"
@@ -153,7 +183,10 @@ jobs:
             createrepo_c --update "$PKGDIR"
           fi
 
-      # --- the first-stage installer lives inside install.img; patch it too ---
+      # --- the first-stage installer lives inside install.img; patch it too.
+      #     The RPM payload (mostly /opt/xensource/installer/) is overlaid onto
+      #     the unpacked install.img so the first-stage installer runs the
+      #     modified code from the test_ai_code branch. ---
       - name: Patch installer inside install.img
         run: |
           set -euo pipefail
@@ -167,6 +200,8 @@ jobs:
           PAYLOAD="$WS/rpm-payload"
           mkdir -p "$PAYLOAD"
           ( cd "$PAYLOAD" && rpm2cpio "$WS/built-rpms/"host-installer-*.rpm | cpio -idm --quiet )
+          echo "RPM payload (installer files):"
+          find "$PAYLOAD" -maxdepth 4 -type d | sed -n '1,20p'
 
           FSTYPE="$(file -b "$IMG")"
           echo "install.img: $FSTYPE"
