@@ -23,14 +23,14 @@ jobs:
         include:
           - version: "7.6"
             iso_url: "https://updates.xcp-ng.org/isos/7.6/xcp-ng-7.6.0.iso"
-#          - version: "8.0"
-#            iso_url: "https://updates.xcp-ng.org/isos/8.0/xcp-ng-8.0.0.iso"
-#          - version: "8.1"
-#            iso_url: "https://updates.xcp-ng.org/isos/8.1/xcp-ng-8.1.0-2.iso"
-#          - version: "8.2"
-#            iso_url: "https://updates.xcp-ng.org/isos/8.2/xcp-ng-8.2.1.iso"
-#          - version: "8.3"
-#            iso_url: "https://updates.xcp-ng.org/isos/8.3/xcp-ng-8.3.0-20260806.iso"
+          - version: "8.0"
+            iso_url: "https://updates.xcp-ng.org/isos/8.0/xcp-ng-8.0.0.iso"
+          - version: "8.1"
+            iso_url: "https://updates.xcp-ng.org/isos/8.1/xcp-ng-8.1.0-2.iso"
+          - version: "8.2"
+            iso_url: "https://updates.xcp-ng.org/isos/8.2/xcp-ng-8.2.1.iso"
+          - version: "8.3"
+            iso_url: "https://updates.xcp-ng.org/isos/8.3/xcp-ng-8.3.0-20260806.iso"
 
     env:
       WS: ${{ github.workspace }}
