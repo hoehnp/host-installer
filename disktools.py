@@ -535,9 +535,9 @@ class PartitionToolBase:
     def partitionNumber(self, partitionDevice):
         matches = re.match(self.device + self.midfix + r'(\d+)$', partitionDevice)
         if not matches:
-            logger.log("Device: ", self.device)
-            logger.log("midfix: ", self.midfix)
-            logger.log("partitionDevice: ", partitionDevice)
+            logger.log("Device: " + str(self.device))
+            logger.log("midfix: " +str(self.midfix))
+            logger.log("partitionDevice: " + str(partitionDevice))
             raise Exception("Could not determine partition number for device '"+partitionDevice+"'")
         return int(matches.group(1))
 
