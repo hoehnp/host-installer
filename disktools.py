@@ -537,7 +537,7 @@ class PartitionToolBase:
         if not matches:
             print("Device: ", self.device)
             print("midfix: ", self.midfix)
-            print("partitionDevice: ", self.partitionDevice)
+            print("partitionDevice: ", partitionDevice)
             raise Exception("Could not determine partition number for device '"+partitionDevice+"'")
         return int(matches.group(1))
 
