@@ -426,9 +426,9 @@ def _override_manual_partitions(answers):
         if storage_dev:
             storage = (diskutil.STORAGE_LVM, storage_dev)
 
-        remove_digits = root_dev.maketrans('', '', digits)
+        remove_digits = root_dev.maketrans('', '')
         inst = product.ExistingRetailInstallation(
-            root_dev.split('p')[0] if 'p' in root_dev else root_dev.translate(remove_digits),
+            root_dev.split('p')[0] if 'p' in root_dev else root_dev.translate(remove_digits, digits),
             boot_dev, root_dev, state_dev, storage)
 
         answers['installed-products'] = [inst]
