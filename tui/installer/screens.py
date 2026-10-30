@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
 import string
+from string import digits
 import datetime
 import os.path
 import time
@@ -425,8 +426,9 @@ def _override_manual_partitions(answers):
         if storage_dev:
             storage = (diskutil.STORAGE_LVM, storage_dev)
 
+        remove_digits = root_dev.maketrans('', '', digits)
         inst = product.ExistingRetailInstallation(
-            root_dev.split('p')[0] if 'p' in root_dev else root_dev.replace('/dev/', '/dev/'),
+            root_dev.split('p')[0] if 'p' in root_dev else root_dev.translate(remove_digits),
             boot_dev, root_dev, state_dev, storage)
 
         answers['installed-products'] = [inst]
