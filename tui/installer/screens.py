@@ -437,6 +437,7 @@ def _override_manual_partitions(answers):
         answers['installation-to-overwrite'] = inst
         answers['install-type'] = constants.INSTALL_TYPE_REINSTALL
         answers['primary-disk'] = inst.primary_disk
+        answers['physical-disks'] = [answers['primary-disk']]
         answers['preserve-settings'] = inst.settingsAvailable()
         answers['detection-overridden'] = True
 
